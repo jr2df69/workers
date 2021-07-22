@@ -22,7 +22,7 @@ func (tj *testJob) Run(_ *logrus.Entry) {
 	tj.jobChan <- eventRunner
 }
 
-func (tj *testJob) onStart() error {
+func (tj *testJob) OnStart() error {
 	if tj.onStartError == nil {
 		tj.jobChan <- eventOnStart
 		return nil
@@ -32,7 +32,7 @@ func (tj *testJob) onStart() error {
 	return tj.onStartError
 }
 
-func (tj *testJob) onFinish() {
+func (tj *testJob) OnFinish() {
 	tj.jobChan <- eventOnFinish
 	close(tj.jobChan)
 }
@@ -79,7 +79,7 @@ func TestJobWorkOnStartError(t *testing.T) {
 
 func testAsyncJobWorker(test *jobWorkerTest, t *testing.T) {
 	logrus.SetLevel(logrus.DebugLevel)
-	worker := newAsyncJobWorker(test.testJob.onStart, test.testJob.onFinish, logrus.StandardLogger(), test.workerOpts)
+	worker := newAsyncJobWorker(logrus.StandardLogger(), test.workerOpts)
 
 	err := worker.RunWith(test.testJob)
 	if err != test.testJob.onStartError {

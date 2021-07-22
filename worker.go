@@ -13,7 +13,9 @@ type AsyncJobWorkerOptions struct {
 }
 
 type Job interface {
+	OnStart() error
 	Run(*logrus.Entry)
+	OnFinish()
 }
 
 type JobWorker interface {
@@ -26,25 +28,14 @@ type JobWorker interface {
 }
 
 func NewAsyncJobWorker(onStart OnStartFunc, onFinished OnFinishedFunc, logger *logrus.Logger, opts *AsyncJobWorkerOptions) JobWorker {
-	return newAsyncJobWorker(onStart, onFinished, logger, opts)
+	return newAsyncJobWorker(logger, opts)
 }
 
-func newAsyncJobWorker(onStart OnStartFunc, onFinished OnFinishedFunc, logger *logrus.Logger, opts *AsyncJobWorkerOptions) *asyncJobWorker {
+func newAsyncJobWorker(logger *logrus.Logger, opts *AsyncJobWorkerOptions) *asyncJobWorker {
 	ajw := &asyncJobWorker{
-		onStart:    onStart,
-		onFinished: onFinished,
-
 		logger: logger,
 
 		opts: opts,
-	}
-
-	if ajw.onStart == nil {
-		ajw.onStart = dummyOnStart
-	}
-
-	if ajw.onFinished == nil {
-		ajw.onFinished = dummyOnFinished
 	}
 
 	if ajw.logger == nil {
@@ -57,9 +48,6 @@ func newAsyncJobWorker(onStart OnStartFunc, onFinished OnFinishedFunc, logger *l
 type asyncJobWorker struct {
 	mutex      sync.Mutex
 	currentJob Job
-
-	onStart    OnStartFunc
-	onFinished OnFinishedFunc
 
 	logger *logrus.Logger
 
@@ -113,13 +101,13 @@ func (ajw *asyncJobWorker) RunWith(job Job) error {
 
 	ajw.mutex.Unlock()
 
-	go ajw.waitAndFinish(wg)
+	go ajw.waitAndFinish(wg, job)
 
 	return nil
 }
 
 func (ajw *asyncJobWorker) setRunning(job Job) error {
-	err := ajw.onStart()
+	err := job.OnStart()
 	if err != nil {
 		return err
 	}
@@ -131,17 +119,17 @@ func (ajw *asyncJobWorker) setRunning(job Job) error {
 	return nil
 }
 
-func (ajw *asyncJobWorker) setFinished() {
+func (ajw *asyncJobWorker) setFinished(job Job) {
 	ajw.currentJob = nil
 	ajw.running = false
 	ajw.finishedAt = time.Now()
-	ajw.onFinished()
+	job.OnFinish()
 }
 
-func (ajw *asyncJobWorker) waitAndFinish(wg *sync.WaitGroup) {
+func (ajw *asyncJobWorker) waitAndFinish(wg *sync.WaitGroup, job Job) {
 	wg.Wait()
 	ajw.mutex.Lock()
-	ajw.setFinished()
+	ajw.setFinished(job)
 	ajw.mutex.Unlock()
 }
 
