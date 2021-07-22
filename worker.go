@@ -27,7 +27,7 @@ type JobWorker interface {
 	FinishedAt() time.Time
 }
 
-func NewAsyncJobWorker(onStart OnStartFunc, onFinished OnFinishedFunc, logger *logrus.Logger, opts *AsyncJobWorkerOptions) JobWorker {
+func NewAsyncJobWorker(logger *logrus.Logger, opts *AsyncJobWorkerOptions) JobWorker {
 	return newAsyncJobWorker(logger, opts)
 }
 
