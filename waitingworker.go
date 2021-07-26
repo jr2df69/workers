@@ -14,6 +14,7 @@ type WaitingWorker interface {
 	io.Closer
 	Wait()
 	Force() error
+	LastError() error
 
 	Running() bool
 	StartedAt() time.Time
@@ -33,7 +34,9 @@ type commonWaitingWorker struct {
 	startedAt  time.Time
 	finishedAt time.Time
 
-	workerFunc func()
+	workerFunc func() error
+
+	lastError error
 
 	runOnLoad    bool
 	sleepTimeout time.Duration
@@ -129,8 +132,24 @@ func (w *commonWaitingWorker) startWork() {
 	}
 
 	w.setRunning(true)
-	w.workerFunc()
-	w.setRunning(false)
+	defer w.setRunning(false)
+	if err := w.workerFunc(); err != nil {
+		w.logger.WithError(err).Error("unable to start job")
+		w.lastError = err
+		return
+	}
+}
+
+func (w *commonWaitingWorker) storeError(err error) {
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+	w.lastError = err
+}
+
+func (w *commonWaitingWorker) LastError() error {
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+	return w.lastError
 }
 
 // setRunning - sets worker status thread-safely

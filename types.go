@@ -9,6 +9,7 @@ import (
 // ErrWaitingWorkerBusy - worker is busy
 var (
 	ErrWorkerBusy = errors.New("Worker is already busy")
+	ErrEmptyJob   = errors.New("job not defined")
 )
 
 // OnStartFunc - function that called on start

@@ -12,6 +12,7 @@ type asyncTestConfig struct {
 	errOnStart   error
 	opts         *AsyncOptions
 	mustBeForced bool
+	iterations   int
 }
 
 func TestAsyncWorkerByTimeout(t *testing.T) {
@@ -50,6 +51,18 @@ func TestAsyncWorkerForced(t *testing.T) {
 	testAsyncWorker(test, t)
 }
 
+func TestAsyncWorkerIteratively(t *testing.T) {
+	test := &asyncTestConfig{
+		opts: &AsyncOptions{
+			ParallelWorkersCount: 10,
+			SleepTimeout:         2 * time.Second,
+		},
+		iterations: 3,
+	}
+
+	testAsyncWorker(test, t)
+}
+
 func TestAsyncWorkerStartError(t *testing.T) {
 	test := &asyncTestConfig{
 		opts: &AsyncOptions{
@@ -69,7 +82,15 @@ func testAsyncWorker(test *asyncTestConfig, t *testing.T) {
 
 	logger := logrus.StandardLogger()
 	logger.SetLevel(logrus.DebugLevel)
-	w := newAsync(logger, ast.onStart, ast.onFinish, ast.Run, test.opts)
+	w := newWaitingAsync(logger, ast, test.opts)
 
-	testWorker(t, w, ast.events(), test.opts.ParallelWorkersCount, test.mustBeForced, test.opts.RunOnLoad, test.opts.SleepTimeout, test.errOnStart)
+	if test.iterations <= 1 {
+		testWorker(t, w, ast, test.opts.ParallelWorkersCount, test.mustBeForced, test.opts.RunOnLoad, test.opts.SleepTimeout, test.errOnStart)
+		return
+	}
+
+	for i := 0; i < test.iterations; i++ {
+		t.Logf("Running iteration %d", i+1)
+		testWorker(t, w, ast, test.opts.ParallelWorkersCount, test.mustBeForced, test.opts.RunOnLoad, test.opts.SleepTimeout, test.errOnStart)
+	}
 }

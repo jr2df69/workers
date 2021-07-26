@@ -1,7 +1,6 @@
 package workers
 
 import (
-	"errors"
 	"sync"
 	"time"
 
@@ -20,25 +19,20 @@ type asyncWorker struct {
 	*commonWaitingWorker
 	options *AsyncOptions
 
-	onStartFunc    OnStartFunc
-	onFinishedFunc OnFinishedFunc
-	runnerFunc     RunnerFunc
+	job Job
 }
 
-func NewAsync(
+// NewWaitingAsync - new waiting async job worker
+func NewWaitingAsync(
 	logger *logrus.Logger,
-	onStartFunc OnStartFunc,
-	onFinishedFunc OnFinishedFunc,
-	runnerFunc RunnerFunc,
+	job Job,
 	o *AsyncOptions,
 ) WaitingWorker {
-	return newAsync(logger, onStartFunc, onFinishedFunc, runnerFunc, o)
+	return newWaitingAsync(logger, job, o)
 }
 
-func newAsync(logger *logrus.Logger,
-	onStartFunc OnStartFunc,
-	onFinishedFunc OnFinishedFunc,
-	runnerFunc RunnerFunc,
+func newWaitingAsync(logger *logrus.Logger,
+	job Job,
 	o *AsyncOptions,
 ) *asyncWorker {
 	aw := &asyncWorker{
@@ -49,16 +43,7 @@ func newAsync(logger *logrus.Logger,
 			o.SleepTimeout,
 		),
 
-		onStartFunc:    onStartFunc,
-		onFinishedFunc: onFinishedFunc,
-		runnerFunc:     runnerFunc,
-	}
-
-	if aw.onStartFunc == nil {
-		aw.onStartFunc = dummyOnStart
-	}
-	if aw.onFinishedFunc == nil {
-		aw.onFinishedFunc = dummyOnFinished
+		job: job,
 	}
 
 	aw.commonWaitingWorker.workerFunc = aw.startWork
@@ -67,15 +52,14 @@ func newAsync(logger *logrus.Logger,
 }
 
 // startWork - starts async worker
-func (aw *asyncWorker) startWork() {
-	if aw.runnerFunc == nil {
-		panic(errors.New("runner func is not defined"))
+func (aw *asyncWorker) startWork() error {
+	if aw.job == nil {
+		return ErrEmptyJob
 	}
 
-	err := aw.onStartFunc()
+	err := aw.job.OnStart()
 	if err != nil {
-		aw.logger.WithError(err).Error("starting worker was aborted by error")
-		return
+		return err
 	}
 
 	wg := &sync.WaitGroup{}
@@ -87,9 +71,10 @@ func (aw *asyncWorker) startWork() {
 
 	wg.Wait()
 
-	aw.onFinishedFunc()
-
+	aw.job.OnFinish()
 	aw.logger.Warn("workers finished")
+
+	return nil
 }
 
 // runner - async worker subworker
@@ -98,7 +83,7 @@ func (aw *asyncWorker) runner(wg *sync.WaitGroup) {
 	workerLogger.Warn("worker started")
 	defer wg.Done()
 
-	aw.runnerFunc(workerLogger)
+	aw.job.Run(workerLogger)
 
 	workerLogger.Warn("worker stopped")
 }

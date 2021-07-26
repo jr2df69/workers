@@ -1,7 +1,6 @@
 package workers
 
 import (
-	"errors"
 	"time"
 
 	uuid "github.com/satori/go.uuid"
@@ -11,9 +10,7 @@ import (
 type simpleWorker struct {
 	*commonWaitingWorker
 
-	onStartFunc    OnStartFunc
-	onFinishedFunc OnFinishedFunc
-	runnerFunc     RunnerFunc
+	job Job
 }
 
 // SimpleOptions - simple worker options
@@ -25,19 +22,15 @@ type SimpleOptions struct {
 // NewSimpleWorker - initializes new simple worker
 func NewSimpleWorker(
 	logger *logrus.Logger,
-	onStartFunc OnStartFunc,
-	onFinishedFunc OnFinishedFunc,
-	runnerFunc RunnerFunc,
+	job Job,
 	o *SimpleOptions,
 ) WaitingWorker {
-	return newSimpleWorker(logger, onStartFunc, onFinishedFunc, runnerFunc, o)
+	return newSimpleWorker(logger, job, o)
 }
 
 func newSimpleWorker(
 	logger *logrus.Logger,
-	onStartFunc OnStartFunc,
-	onFinishedFunc OnFinishedFunc,
-	runnerFunc RunnerFunc,
+	job Job,
 	o *SimpleOptions,
 ) *simpleWorker {
 	sw := &simpleWorker{
@@ -47,16 +40,7 @@ func newSimpleWorker(
 			o.SleepTimeout,
 		),
 
-		onStartFunc:    onStartFunc,
-		onFinishedFunc: onFinishedFunc,
-		runnerFunc:     runnerFunc,
-	}
-
-	if sw.onStartFunc == nil {
-		sw.onStartFunc = dummyOnStart
-	}
-	if sw.onFinishedFunc == nil {
-		sw.onFinishedFunc = dummyOnFinished
+		job: job,
 	}
 
 	sw.commonWaitingWorker.workerFunc = sw.startWork
@@ -65,17 +49,22 @@ func newSimpleWorker(
 }
 
 // startWork - starting simple worker work
-func (sw *simpleWorker) startWork() {
+func (sw *simpleWorker) startWork() error {
 	workerLogger := sw.logger.WithField("logger_id", uuid.NewV4().String())
 	workerLogger.Info("worker starting")
 
-	if sw.runnerFunc == nil {
-		panic(errors.New("runner func is not defined"))
+	if sw.job == nil {
+		return ErrEmptyJob
 	}
 
-	sw.onStartFunc()
-	sw.runnerFunc(workerLogger)
-	sw.onFinishedFunc()
+	if err := sw.job.OnStart(); err != nil {
+		return err
+	}
+
+	sw.job.Run(workerLogger)
+	sw.job.OnFinish()
 
 	workerLogger.Info("worker finished")
+
+	return nil
 }

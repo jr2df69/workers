@@ -12,6 +12,7 @@ type simpleTestConfig struct {
 	errOnStart   error
 	opts         *SimpleOptions
 	mustBeForced bool
+	iterations   int
 }
 
 func TestSimpleWorkerByTimeout(t *testing.T) {
@@ -19,6 +20,17 @@ func TestSimpleWorkerByTimeout(t *testing.T) {
 		opts: &SimpleOptions{
 			SleepTimeout: 2 * time.Second,
 		},
+	}
+
+	testSimpleWorker(test, t)
+}
+
+func TestSimpleWorkerByTimeoutIteratively(t *testing.T) {
+	test := &simpleTestConfig{
+		opts: &SimpleOptions{
+			SleepTimeout: 1 * time.Second,
+		},
+		iterations: 3,
 	}
 
 	testSimpleWorker(test, t)
@@ -50,7 +62,7 @@ func TestSimpleWorkerForced(t *testing.T) {
 func TestSimpleWorkerStartError(t *testing.T) {
 	test := &simpleTestConfig{
 		opts: &SimpleOptions{
-			SleepTimeout: 1 * time.Second,
+			SleepTimeout: 2 * time.Second,
 			RunOnLoad:    false,
 		},
 		errOnStart: errors.New("some start error"),
@@ -65,7 +77,14 @@ func testSimpleWorker(test *simpleTestConfig, t *testing.T) {
 
 	logger := logrus.StandardLogger()
 	logger.SetLevel(logrus.DebugLevel)
-	w := newSimpleWorker(logger, ast.onStart, ast.onFinish, ast.Run, test.opts)
+	w := newSimpleWorker(logger, ast, test.opts)
+	if test.iterations <= 1 {
+		testWorker(t, w, ast, 1, test.mustBeForced, test.opts.RunOnLoad, test.opts.SleepTimeout, test.errOnStart)
+		return
+	}
 
-	testWorker(t, w, ast.events(), 1, test.mustBeForced, test.opts.RunOnLoad, test.opts.SleepTimeout, test.errOnStart)
+	for i := 0; i < test.iterations; i++ {
+		t.Logf("Running iteration %d", i+1)
+		testWorker(t, w, ast, 1, test.mustBeForced, test.opts.RunOnLoad, test.opts.SleepTimeout, test.errOnStart)
+	}
 }
