@@ -8,16 +8,19 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// AsyncJobWorkerOptions - async on-demand job worker
 type AsyncJobWorkerOptions struct {
 	ParallelWorkersCount int
 }
 
+// Job - job interface
 type Job interface {
 	OnStart() error
 	Run(*logrus.Entry)
 	OnFinish()
 }
 
+// JobWorker - worker
 type JobWorker interface {
 	RunWith(job Job) error
 	CurrentJob() Job
@@ -27,6 +30,7 @@ type JobWorker interface {
 	FinishedAt() time.Time
 }
 
+// NewAsyncJobWorker - new async worker for on-demand job
 func NewAsyncJobWorker(logger *logrus.Logger, opts *AsyncJobWorkerOptions) JobWorker {
 	return newAsyncJobWorker(logger, opts)
 }
