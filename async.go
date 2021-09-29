@@ -1,6 +1,7 @@
 package workers
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -20,6 +21,8 @@ type asyncWorker struct {
 	options *AsyncOptions
 
 	job Job
+
+	cancelFuncs []context.CancelFunc
 }
 
 // NewWaitingAsync - new waiting async job worker
@@ -61,10 +64,13 @@ func (aw *asyncWorker) startWork() error {
 	if err != nil {
 		return err
 	}
+	aw.cancelFuncs = make([]context.CancelFunc, 0, aw.options.ParallelWorkersCount)
 
 	wg := &sync.WaitGroup{}
 	for i := 0; i < aw.options.ParallelWorkersCount; i++ {
-		go aw.runner(wg)
+		ctx, cFunc := context.WithCancel(context.Background())
+		go aw.runner(ctx, wg)
+		aw.cancelFuncs = append(aw.cancelFuncs, cFunc)
 		wg.Add(1)
 	}
 	aw.logger.Warn("workers started")
@@ -78,12 +84,21 @@ func (aw *asyncWorker) startWork() error {
 }
 
 // runner - async worker subworker
-func (aw *asyncWorker) runner(wg *sync.WaitGroup) {
+func (aw *asyncWorker) runner(ctx context.Context, wg *sync.WaitGroup) {
 	workerLogger := aw.logger.WithField("logger_id", uuid.NewV4().String())
 	workerLogger.Warn("worker started")
 	defer wg.Done()
 
-	aw.job.Run(workerLogger)
+	aw.job.Run(ctx)
 
 	workerLogger.Warn("worker stopped")
+}
+
+func (aw *asyncWorker) Stop() {
+	for _, cFunc := range aw.cancelFuncs {
+		if cFunc != nil {
+			cFunc()
+		}
+	}
+	aw.cancelFuncs = make([]context.CancelFunc, 0)
 }

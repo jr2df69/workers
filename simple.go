@@ -1,6 +1,7 @@
 package workers
 
 import (
+	"context"
 	"time"
 
 	uuid "github.com/satori/go.uuid"
@@ -11,6 +12,8 @@ type simpleWorker struct {
 	*commonWaitingWorker
 
 	job Job
+
+	cancelFunc context.CancelFunc
 }
 
 // SimpleOptions - simple worker options
@@ -61,10 +64,20 @@ func (sw *simpleWorker) startWork() error {
 		return err
 	}
 
-	sw.job.Run(workerLogger)
+	var ctx context.Context
+	ctx, sw.cancelFunc = context.WithCancel(context.Background())
+
+	sw.job.Run(ctx)
 	sw.job.OnFinish()
 
 	workerLogger.Info("worker finished")
 
 	return nil
+}
+
+func (sw *simpleWorker) Stop() {
+	if sw.cancelFunc != nil {
+		sw.cancelFunc()
+		sw.cancelFunc = nil
+	}
 }

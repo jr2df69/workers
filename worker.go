@@ -1,6 +1,7 @@
 package workers
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -16,18 +17,19 @@ type AsyncJobWorkerOptions struct {
 // Job - job interface
 type Job interface {
 	OnStart() error
-	Run(*logrus.Entry)
+	Run(ctx context.Context)
 	OnFinish()
 }
 
 // JobWorker - worker
 type JobWorker interface {
-	RunWith(job Job) error
+	RunWith(ctx context.Context, job Job) error
 	CurrentJob() Job
 
 	Running() bool
 	StartedAt() time.Time
 	FinishedAt() time.Time
+	Stop()
 }
 
 // NewAsyncJobWorker - new async worker for on-demand job
@@ -61,6 +63,8 @@ type asyncJobWorker struct {
 
 	startedAt  time.Time
 	finishedAt time.Time
+
+	cFuncs []context.CancelFunc
 }
 
 func (ajw *asyncJobWorker) Running() bool {
@@ -85,7 +89,7 @@ func (ajw *asyncJobWorker) CurrentJob() Job {
 	return ajw.currentJob
 }
 
-func (ajw *asyncJobWorker) RunWith(job Job) error {
+func (ajw *asyncJobWorker) RunWith(ctx context.Context, job Job) error {
 	ajw.mutex.Lock()
 	if ajw.running {
 		ajw.mutex.Unlock()
@@ -97,10 +101,14 @@ func (ajw *asyncJobWorker) RunWith(job Job) error {
 		return err
 	}
 
+	ajw.cFuncs = make([]context.CancelFunc, 0)
+
 	wg := &sync.WaitGroup{}
 	for i := 0; i < ajw.opts.ParallelWorkersCount; i++ {
 		wg.Add(1)
-		go ajw.runner(wg, job)
+		ctx, cFunc := context.WithCancel(ctx)
+		ajw.cFuncs = append(ajw.cFuncs, cFunc)
+		go ajw.runner(ctx, wg, job)
 	}
 
 	ajw.mutex.Unlock()
@@ -138,12 +146,22 @@ func (ajw *asyncJobWorker) waitAndFinish(wg *sync.WaitGroup, job Job) {
 }
 
 // runner - async worker subworker
-func (ajw *asyncJobWorker) runner(wg *sync.WaitGroup, job Job) {
+func (ajw *asyncJobWorker) runner(ctx context.Context, wg *sync.WaitGroup, job Job) {
 	workerLogger := ajw.logger.WithField("logger_id", uuid.NewV4().String())
 	workerLogger.Warn("worker started")
 	defer wg.Done()
 
-	job.Run(workerLogger)
+	job.Run(ctx)
 
 	workerLogger.Warn("worker stopped")
+}
+
+func (ajw *asyncJobWorker) Stop() {
+	for _, cFunc := range ajw.cFuncs {
+		if cFunc != nil {
+			cFunc()
+		}
+	}
+
+	ajw.cFuncs = make([]context.CancelFunc, 0)
 }

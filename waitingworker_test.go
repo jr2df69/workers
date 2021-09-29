@@ -1,10 +1,9 @@
 package workers
 
 import (
+	"context"
 	"testing"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
 type workerTester struct {
@@ -19,6 +18,7 @@ const (
 	eventOnStart      = "onStart"
 	eventOnStartError = "onStartError"
 	eventOnFinish     = "onFinish"
+	eventAbort        = "abort"
 )
 
 func newWorkerTester(buf int, errOnStart error) *workerTester {
@@ -44,8 +44,9 @@ func (wt *workerTester) OnStart() error {
 	return wt.errOnStart
 }
 
-func (wt *workerTester) Run(_ *logrus.Entry) {
+func (wt *workerTester) Run(ctx context.Context) {
 	select {
+	case <-ctx.Done():
 	case wt.eventsCh <- eventRunner:
 		/*case <-time.After(1 * time.Second):
 		panic(errors.New("too long"))*/

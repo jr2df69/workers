@@ -1,6 +1,7 @@
 package workers
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -11,6 +12,8 @@ import (
 type jobWorkerTest struct {
 	workerOpts *AsyncJobWorkerOptions
 	testJob    *testJob
+
+	mustAbort bool
 }
 
 type testJob struct {
@@ -18,7 +21,13 @@ type testJob struct {
 	onStartError error
 }
 
-func (tj *testJob) Run(_ *logrus.Entry) {
+func (tj *testJob) Run(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+		tj.jobChan <- eventAbort
+	case <-time.After(100 * time.Millisecond):
+		break
+	}
 	tj.jobChan <- eventRunner
 }
 
@@ -45,6 +54,20 @@ func TestJobWorkAsync(t *testing.T) {
 		testJob: &testJob{
 			jobChan: make(chan string, 12),
 		},
+	}
+
+	testAsyncJobWorker(jwt, t)
+}
+
+func TestJobWorkAbort(t *testing.T) {
+	jwt := &jobWorkerTest{
+		workerOpts: &AsyncJobWorkerOptions{
+			ParallelWorkersCount: 10,
+		},
+		testJob: &testJob{
+			jobChan: make(chan string, 12),
+		},
+		mustAbort: true,
 	}
 
 	testAsyncJobWorker(jwt, t)
@@ -81,17 +104,21 @@ func testAsyncJobWorker(test *jobWorkerTest, t *testing.T) {
 	logrus.SetLevel(logrus.DebugLevel)
 	worker := newAsyncJobWorker(logrus.StandardLogger(), test.workerOpts)
 
-	err := worker.RunWith(test.testJob)
+	err := worker.RunWith(context.Background(), test.testJob)
 	if err != test.testJob.onStartError {
 		t.Fatalf("unexpected error on start: %s", err.Error())
 	} else if err != nil {
 		t.Logf("returned start error: %s", err.Error())
 		return
 	}
+	if test.mustAbort {
+		worker.Stop()
+	}
 
 	wasStart := false
 	wasFinish := false
 	runnerEventsCount := 0
+	abortEventsCount := 0
 check:
 	for {
 		eventsCh := test.testJob.jobChan
@@ -138,10 +165,12 @@ check:
 				break check
 			case eventRunner:
 				runnerEventsCount++
+			case eventAbort:
+				abortEventsCount++
 			default:
 				t.Fatalf("unknown event: %s", evt)
 			}
-		case <-time.After(50 * time.Millisecond):
+		case <-time.After(500 * time.Millisecond):
 			t.Fatalf("too slow")
 		}
 	}
@@ -154,8 +183,14 @@ check:
 		t.Fatal("missing finish event")
 	}
 
-	if runnerEventsCount != test.workerOpts.ParallelWorkersCount {
-		t.Fatalf("runner events mismatch: wanted %d, got %d", test.workerOpts.ParallelWorkersCount, runnerEventsCount)
+	if test.mustAbort {
+		if abortEventsCount != test.workerOpts.ParallelWorkersCount {
+			t.Fatalf("abort events mismatch: wanted %d, got %d", test.workerOpts.ParallelWorkersCount, runnerEventsCount)
+		}
+	} else {
+		if runnerEventsCount != test.workerOpts.ParallelWorkersCount {
+			t.Fatalf("runner events mismatch: wanted %d, got %d", test.workerOpts.ParallelWorkersCount, runnerEventsCount)
+		}
 	}
 
 	if worker.StartedAt().IsZero() {
